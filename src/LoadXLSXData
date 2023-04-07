@@ -1,0 +1,4 @@
+using  DataTables, CSV
+
+# cfile = CSV.File("AWL data.csv")
+
