@@ -1,18 +1,10 @@
 # Explore Summary Statistics
 
 # Packages
-using DataFrames, CSV, Statistics, PrettyTables, Printf, Plots
+using DataFrames, CSV, Statistics, PrettyTables, Printf, Plots, Dates, AverageShiftedHistograms
 
 # Global Variables
 OutputFile = open("output/AR_Report.txt", "w")
-
-"""
-main loop
-
-"""
-function mainloop()
-    # report(FIXEDdata)
-end
 
 """
 Fault Codes
@@ -34,11 +26,11 @@ end
 
 function returndata()
     directory = "data/csv/"
-    filenames = readdir(directory)
-    nfiles = length(filenames)
+    fileNAmes = readdir(directory)
+    nfiles = length(fileNAmes)
     retDF = DataFrame()
     i = 0
-    for f in filenames
+    for f in fileNAmes
         
         # parse out year, month, day
         year = "20" * f[3:4]
@@ -82,7 +74,7 @@ function report(dfIF)
     ReportEWTBreakdownbyYM(dfIF)
     ReportEWTsummary(dfIF)
     ReportPowerDemand(dfIF)
-    TemperatureAnalysis(dfIF)
+    TemperatureANAlysis(dfIF)
 end
 
 function ReporttoFile(dfIF::DataFrame)
@@ -103,7 +95,7 @@ end
 
 function GeneralSummary(dfIF::DataFrame)
     gbdf = groupby(dfIF[!,1:5], [:"Fault Code", :"Mode"])
-    pretty_table(sort(combine(gbdf, :EWT => mean, nrow), [:"Fault Code", :nrow]),
+    pretty_table(combine(gbdf, :EWT => mean, nrow), [:"Fault Code", :nrow],
        header = ["Fault Code", "Mode", "EWT Mean Temp", "Number of Events"],
        header_crayon = crayon"yellow bold")
     println()
@@ -162,6 +154,30 @@ function ReportPowerDemand(dfIN::DataFrame)
     CSV.write("output/PowerDemand.csv", gbdf)
 end
 
+function FineEWT(dfIN:DataFrame, Year:Int, Month:Int, Day:Int == nothing, IntervalMins:Int == nothing)
+    gbdata = dfIN
+    gbdata = filter(:Year => Y - (parse(Int, Y) == Year), :Month => M -> (parse(Int, M) == Month), gbdata)
+    if(Day)
+        gbdata = filter(:Day => D -> (parse(Int, D) == Day), gbdata)
+    end
+
+    TargetDate = if (Day)
+        DateTime(Year, Month, Day)
+    else
+        Datetime(Year, Month)
+    end
+
+    if (IntervalMins)
+    else
+        gbdata = combine(gbdata, :Time => T -> (div(Time(T), Time("00:15:00"))) => :TimeGroup)
+    end
+
+    if (Day)
+        # for one day we can throw all the data into an ASH
+        
+
+end
+
 """
 room temp vs room setpoint
 """
@@ -178,7 +194,7 @@ function difference(A::SubArray)
 end
 # combine(gbdata, :"Room Temp" => mean => :RTMean, :"Active Setpoint" => mean => :ASMean)
 
-function TemperatureAnalysis(gbdata::DataFrame)
+function TemperatureANAlysis(gbdata::DataFrame)
     gbdata[:, :TempDiff] = myround.(gbdata[:, :"Room Temp"] - gbdata[:, :"Active Setpoint"])
     gbdata = groupby(gbdata, [:Year, :Month])
     gbdata = combine(gbdata, :"Room Temp" => mean => :RTMean,
@@ -187,7 +203,7 @@ function TemperatureAnalysis(gbdata::DataFrame)
     pretty_table(gbdata,
         header = ["Year", "Month", "Room Temp mean", "Active Setpoint Mean", "Temperature Difference Mean"],
         header_crayon = crayon"yellow bold")
-    CSV.write("output/TemperatureAnalysis.csv", gbdata)
+    CSV.write("output/TemperatureANAlysis.csv", gbdata)
 end
 
 #
@@ -196,17 +212,17 @@ end
 
 """
     MakeSeries(data)
-    Takes a dataframe of WaterFurnace telemetry, filterd on Flow > 4.0.
+    Takes a dataframe of WaterFurNAce telemetry, filterd on Flow > 4.0.
 """
 function MakeSeries(data::DataFrame)
     gbdata = data
     gbdata = groupby(gbdata, [:Year, :Month])
     gbdata = combine(gbdata, :EWT => mean)
-    returnDF = DataFrame(SeriesName=String[], SeriesData=Array[])
+    returnDF = DataFrame(SeriesNAme=String[], SeriesData=Array[])
     for Year in unique(gbdata[:, :Year])
         xydata = (filter(:Year => Y -> Y==(Year), gbdata))[:, [:Month, :EWT_mean]]
         println(" Year " * Year)
-        seriesdata = zeros(12)
+        seriesdata = fill(missing, 12)
         for xy in  eachrow(xydata)
             seriesdata[parse(Int, xy[1])] = xy[2]
             println("Year: " * Year * " Month: " * xy[1] * " Value: " * string(xy[2]))
@@ -226,8 +242,7 @@ function CreatePlot(dfData::DataFrame)
     PLT = plot()
     plot!(title = "Entering Water Temp Mean by month", xlabel = "Month", ylabel = "Temp")
     plot!(xlims = (1,12), xticks = 0:1:12)
-    dfSeriesData = MakeSeries(dfData)
-    labels = reshape(dfSeriesDataT[:, :SeriesName], 1, :)
+    labels = reshape(dfSeriesDataT[:, :Seriesname], 1, :)
     plot!(label = labels, dfSeriesData[:, :SeriesData])
     plot!()
     savefig("output/EWTMbM.png")
