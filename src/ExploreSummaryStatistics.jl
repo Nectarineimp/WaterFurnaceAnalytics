@@ -7,23 +7,15 @@ using DataFrames, CSV, Statistics, PrettyTables, Printf, Plots, Dates, AverageSh
 OutputFile = open("output/AR_Report.txt", "w")
 
 """
-Fault Codes
-Returns the unique fault codes found in the data.
+    returndata()
+
+        This function builds the 847,000,000 data point model as a DataFrame.
+        It requires CSV files from the WaterFurnace software. There are several
+        forms of CSV files provided by WF but this function is agnostic to
+        which ones are being used. The main difference is the column names. 
+        Column names will have to be updated in the reports to match the downloaded
+        data's names.
 """
-function faultcodes(dfIF)
-    gbdfN = groupby(dfIF, "Fault Code")
-    faultK = keys(gbdfN)
-    return faultK
-end
-
-function ReportFaultCodes(dfIF)
-    println("Detected Fault Codes")
-    for fc in faultcodes(dfIF)
-        println(fc)
-    end
-    println()
-end
-
 function returndata()
     directory = "data/csv/"
     fileNAmes = readdir(directory)
@@ -57,7 +49,7 @@ function returndata()
             println(string(i) * " of " * string(nfiles))
         end
     end
-    retDF = filter(:FLOW => x -> x > 4.0, retDF)
+    #retDF = filter(:FLOW => x -> x > 4.0, retDF)
     return(retDF)
 end
 
@@ -66,33 +58,115 @@ end
 #
 #
 
-function report(dfIF)
-    ReportFaultCodes(dfIF)
-    GeneralSummary(dfIF)
-    EnteringWaterReport(dfIF)
-    ReportFaultDistributionbymonthyear(dfIF)
-    ReportEWTBreakdownbyYM(dfIF)
-    ReportEWTsummary(dfIF)
-    ReportPowerDemand(dfIF)
-    TemperatureANAlysis(dfIF)
+"""
+    Fault Codes
+        Returns the unique fault codes found in the data.
+"""
+function faultcodes(dfIF)
+    gbdfN = groupby(dfIF, "Fault Code")
+    faultK = keys(gbdfN)
+    return faultK
 end
 
+"""
+    ReportFaultCodes()
+        A very basic report on the fault codes.
+"""
+function ReportFaultCodes(dfIF)
+    println("Detected Fault Codes")
+    for fc in faultcodes(dfIF)
+        println(fc)
+    end
+    println()
+end
+
+"""
+    report(DataFile)
+        This is the master report function. It runs all of the reports. It can be called
+        as is for a screen display of the reports, or called in a wrapper function that 
+        redirects the output to a file.
+"""
+function report(dfIF)
+    # Power Reports
+    ReportPowerDemand(dfIF)
+    ReportFaultCodes(dfIF)
+    GeneralSummary(dfIF)
+    # Fault Reports
+    ReportFaultDistributionbymonthyear(dfIF)
+    # Entering Water Reports
+    global FIXEDdata = filter(:FLOW => x -> x > 4.0, FIXEDdata) # water must be flowing to have its temp sampled.
+    EnteringWaterReport(dfIF)
+    ReportEWTBreakdownbyYM(dfIF)
+    ReportEWTsummary(dfIF)
+    TemperatureANAlysis(dfIF)
+    CreatePlot(dfIF)
+    # focus months for EWT study
+    FineEWT(FIXEDdata, 2018, 10)
+    FineEWT(FIXEDdata, 2018, 11)
+    FineEWT(FIXEDdata, 2018, 12)
+    FineEWT(FIXEDdata, 2019, 1)
+end
+
+"""
+    ReporttoFile(Dataframe)
+        A wrapper function to redirect output to a file instead of STDIO.
+"""
 function ReporttoFile(dfIF::DataFrame)
     open("output/AR_Report.txt", "w") do out
         redirect_stdout(out) do 
             report(dfIF)
+            close(out)
         end
-        close(out)
     end
 end
 
 
 # REPORTS
 
+# Helper Functions
+"""
+    missFilter(vector)
+        A helper function for custom 
+"""
 function missFilter(x)
     return x != "missing"
 end
 
+"""
+    myround(Float64)
+        Useful for 3 decimial place rounding of decimal numbers.
+"""
+function myround(x::Float64) round(x, digits=3) end
+
+"""
+    difference(Float64, Float64)
+        Used to simplify difference calculation in functional blocks.
+"""
+function difference(A::Float64, B::Float64)
+    return A-B
+end
+
+"""
+    difference(Tuple)
+        Used to simplify difference calculation in functional blocks.
+"""
+function difference(A::Tuple)
+    return A[1]-A[2]
+end
+
+"""
+    difference(SubArray)
+        Used to simplify difference calculation in functional blocks.
+"""
+function difference(A::SubArray)
+    return A[1]-A[2]
+end
+
+# Fault Code Reports
+"""
+    GeneralSummary(DataFrame)
+        A basic analysis to see what error codes exist in the data.
+"""
 function GeneralSummary(dfIF::DataFrame)
     gbdf = groupby(dfIF[!,1:5], [:"Fault Code", :"Mode"])
     pretty_table(combine(gbdf, :EWT => mean, nrow), [:"Fault Code", :nrow],
@@ -101,6 +175,21 @@ function GeneralSummary(dfIF::DataFrame)
     println()
 end
 
+"""
+    ModeCheck(DataFrame)
+        List unique Mode codes. Mainly used to check to see if Lockdown mode was ever active.
+"""
+function ModeCheck(dfIF::DataFrame)
+    println(unique(dfif[:, :Mode]))
+end
+
+# EWT Reports
+
+"""
+    EnteringWaterReport
+        This report gives fundamental summary statistics, used to validate the data against
+        assumptions of water temperature entering the system.
+"""
 function EnteringWaterReport(dfIN::DataFrame)
     dfEWT = dfIN
     println("Entering Water Temperature Reports")
@@ -114,6 +203,10 @@ function EnteringWaterReport(dfIN::DataFrame)
     println()
 end
 
+"""
+    ReportFaultDistributionbymonthyear(DataFrame)
+        Report used to examine the faults and duration of the faults on a daily basis.
+"""
 function ReportFaultDistributionbymonthyear(dfIF::DataFrame)
     FInput = filter(:"Fault Code" => x -> missFilter(x), dropmissing(dfIF))
     gb = groupby(FInput, [:"Year", :"Month", :"Day", "Fault Code"])
@@ -123,6 +216,10 @@ function ReportFaultDistributionbymonthyear(dfIF::DataFrame)
     CSV.write("output/FaultDistribution.csv", cgb)
 end
 
+"""
+    ReportEWTsummary(DataFrame)
+        Report of overall statistical data on Entering Water Temperature.
+"""
 function ReportEWTsummary(dfIN::DataFrame)
     FInFData = dfIN
     println("EWT Summary")
@@ -134,6 +231,10 @@ function ReportEWTsummary(dfIN::DataFrame)
     println("\tMinimum Temperature: "*string(minimum(FInFData[:,:EWT])))
 end
 
+"""
+    ReportEWTBreakdownbyYM(DataFrame)
+        Monthly EWT statistical data
+"""
 function ReportEWTBreakdownbyYM(dfIN::DataFrame)
     gbdata = dfIN
     gbdata = groupby(gbdata, [:Year, :Month])
@@ -144,56 +245,31 @@ function ReportEWTBreakdownbyYM(dfIN::DataFrame)
     CSV.write("output/EWTBreakdownbyYearMonth.csv", gbdata)
 end
 
+"""
+    ReportPowerDemand(DataFrame)
+        Converts Watts into Kilowatts per hour and reports my month and year.
+"""
 function ReportPowerDemand(dfIN::DataFrame)
+    # report on Aux Current Fan Power, Comp Power, Aux Power, Pump Power, Total Power
     gbdf = groupby(dfIN, [:Year, :Month])
-    gbdf = combine(gbdf, :"Day" => (x -> maximum(x)) => :"Total_Days",
-                        :"Total Power" => (x -> sum(x)/(1000*6*60)) => :"KW/h Power for month")
-    gbdf = combine(gbdf, :"Year", :"Month", :"Total_Days", :"KW/h Power for month", :"KW/h Power for month" => (x -> x * 0.2200) => :"Cost in US Dollars")
+    gbdf = combine(gbdf, :"Day" => (x -> maximum(x)) => :"Total_Days"
+        ,:"Total Power" => (x -> sum(x)/(1000*6*60)) => :"KW/h Total Power for month"
+        ,:"Aux Current" => (x -> sum(x)/(1000*6*60)) => :"KW/h Aux Current for month"
+        ,:"Fan Power" => (x -> sum(x)/(1000*6*60)) => :"KW/h Fan Power for month"
+        ,:"Comp Power" => (x -> sum(x)/(1000*6*60)) => :"KW/h Comp Power for month"
+        ,:"Aux Power" => (x -> sum(x)/(1000*6*60)) => :"KW/h Aux Power for month"
+        ,:"Pump Power" => (x -> sum(x)/(1000*6*60)) => :"KW/h Pump Power for month"
+    )
     ### header = ["Year", "Month", "Total_Days", "Kw/h Power for month", "Cost in US Dollars  $0.22 per KW/h"]
-    pretty_table(gbdf, header_crayon = crayon"yellow bold", crop = :none, header = (["Year", "Month", "Total_Days", "Kw/h Power for month", "Cost in US Dollars"],["","","","","@ \$0.22 / KW/h"]))
+    pretty_table(gbdf, header_crayon = crayon"yellow bold", crop = :none, header = (["Year", "Month", "Total Days", "Total Power", "Aux Current",  "Fan Power", "Comp Power", "Aux Power", "Pump Power"]))
     CSV.write("output/PowerDemand.csv", gbdf)
 end
 
-function FineEWT(dfIN:DataFrame, Year:Int, Month:Int, Day:Int == nothing, IntervalMins:Int == nothing)
-    gbdata = dfIN
-    gbdata = filter(:Year => Y - (parse(Int, Y) == Year), :Month => M -> (parse(Int, M) == Month), gbdata)
-    if(Day)
-        gbdata = filter(:Day => D -> (parse(Int, D) == Day), gbdata)
-    end
-
-    TargetDate = if (Day)
-        DateTime(Year, Month, Day)
-    else
-        Datetime(Year, Month)
-    end
-
-    if (IntervalMins)
-    else
-        gbdata = combine(gbdata, :Time => T -> (div(Time(T), Time("00:15:00"))) => :TimeGroup)
-    end
-
-    if (Day)
-        # for one day we can throw all the data into an ASH
-        
-
-end
-
 """
-room temp vs room setpoint
+    TemperatureANAlysis(DataFrame)
+        Used to analyze the difference between Room Temperature and the Set Point of
+        desired temperature. Reports by Year, and Month aggregates.
 """
-
-function myround(x::Float64) round(x, digits=3) end
-function difference(A::Float64, B::Float64)
-    return A-B
-end
-function difference(A::Tuple)
-    return A[1]-A[2]
-end
-function difference(A::SubArray)
-    return A[1]-A[2]
-end
-# combine(gbdata, :"Room Temp" => mean => :RTMean, :"Active Setpoint" => mean => :ASMean)
-
 function TemperatureANAlysis(gbdata::DataFrame)
     gbdata[:, :TempDiff] = myround.(gbdata[:, :"Room Temp"] - gbdata[:, :"Active Setpoint"])
     gbdata = groupby(gbdata, [:Year, :Month])
@@ -211,21 +287,21 @@ end
 #
 
 """
-    MakeSeries(data)
-    Takes a dataframe of WaterFurNAce telemetry, filterd on Flow > 4.0.
+    MakeSeries(DataFrame)
+        Takes a dataframe of WaterFurNAce telemetry, filterd on Flow > 4.0.
 """
 function MakeSeries(data::DataFrame)
     gbdata = data
     gbdata = groupby(gbdata, [:Year, :Month])
     gbdata = combine(gbdata, :EWT => mean)
-    returnDF = DataFrame(SeriesNAme=String[], SeriesData=Array[])
+    returnDF = DataFrame(SeriesName=String[], SeriesData=Array[])
     for Year in unique(gbdata[:, :Year])
         xydata = (filter(:Year => Y -> Y==(Year), gbdata))[:, [:Month, :EWT_mean]]
         println(" Year " * Year)
         seriesdata = fill(missing, 12)
+        seriesdata = convert(Array{Union{Float64, Missing}}, seriesdata)
         for xy in  eachrow(xydata)
             seriesdata[parse(Int, xy[1])] = xy[2]
-            println("Year: " * Year * " Month: " * xy[1] * " Value: " * string(xy[2]))
         end
         push!(returnDF, (Year, seriesdata))
     end
@@ -234,18 +310,74 @@ end
 
 
 """
-    CreatePlot(dfData::DataFrame)
-
-Plots the data generated in MakeSeries().
+    CreatePlot(DataFrame)
+        Plots the data generated in MakeSeries().
 """
 function CreatePlot(dfData::DataFrame)
+    dfIN = dfData
+    dfData = filter(:FLOW => x -> x > 4.0, dfData)
     PLT = plot()
     plot!(title = "Entering Water Temp Mean by month", xlabel = "Month", ylabel = "Temp")
     plot!(xlims = (1,12), xticks = 0:1:12)
-    labels = reshape(dfSeriesDataT[:, :Seriesname], 1, :)
-    plot!(label = labels, dfSeriesData[:, :SeriesData])
+    dfSeries = MakeSeries(dfData)
+    labels = reshape(dfSeries[:, :SeriesName], 1, :)
+    plot!(label = labels, dfSeries[:, :SeriesData])
+    println("Plotting...\n")
     plot!()
     savefig("output/EWTMbM.png")
+end
+
+"""
+    CalcTimeGroup(Time, Int64)
+        Helper function, takes the time stamp, and an interval in minutes, and creates an index
+"""
+function CalcTimeGroup(T::Time, I::Int64)
+    I = I * 60 #convert Interval Minutes to seconds
+    ElapsedSeconds = div(Dates.value(T), 1_000_000_000)
+    Return(div(ElapsedSeconds, I)+1)
+end
+
+"""
+    CalcTimeGroup(Time, Int64)
+        Helper function, takes several time stamps, and an interval in minutes, and creates a vector of indexes
+"""
+function CalcTimeGroup(T::Vector{Time}, I::Int64)
+    returnvalue = Vector()
+    I = I * 60 #convert Interval Minutes to seconds
+    for t in T
+        ElapsedSeconds = div(Dates.value(t), 1_000_000_000)
+        push!(returnvalue, div(ElapsedSeconds, I)+1)
+    end
+    return returnvalue
+end
+
+"""
+    FineEWT(DataFrame, Int64, Int64, Int64)
+"""
+function FineEWT(dfIN::DataFrame, Year::Int64, Month::Int64,  IntervalMins::Int64=15)
+    gbdata = dfIN
+    dfIN = filter(:FLOW => x -> x > 4.0, dfIN)
+    gbdata = filter(:Year => Y -> parse(Int, Y) == Year, gbdata)
+    gbdata = filter(:Month => M -> parse(Int, M) == Month, gbdata)
+    
+    o = ash(gbdata[:, :EWT])
+    PLT = plot(o)
+    plot!(PLT, title = "Entering Water Temperature to Frequency: " * string(Month) * "/" * string(Year))
+    plot!(PLT, ylabel! = "Frequency", xlabel! = "Temperature (F)")
+    savefig(PLT, "output/ASH" * string(Year) * string(Month) * ".png")
+
+    maximumseries = medianseries = minimumseries = Vector()
+    gbdata = groupby(gbdata, :Day)
+    maximumseries = Vector()
+    medianseries = Vector()
+    minimumseries = Vector()
+    PLT2 = plot(title = "Temperature Variations " * string(Month) * "/" * string(Year))
+    plot!(PLT2, xlabel = "Day of Month", ylabel = "Temperature")
+    for g in gbdata push!(medianseries, median(g[:, :EWT])) end
+    for g in gbdata push!(maximumseries, maximum(g[:, :EWT])) end
+    for g in gbdata push!(minimumseries, minimum(g[:, :EWT])) end
+    plot!(PLT2, 1:length(maximumseries), [maximumseries medianseries minimumseries], label=["Maximum" "Median" "Minimum"], linewidth=3)
+    savefig(PLT2, "output/tempbyday" * string(Year) * string(Month) * ".png")
 end
 
 #
@@ -253,8 +385,13 @@ end
 # Run this code last
 #
 
-const global FIXEDdata = returndata()
-report(FIXEDdata)
+# FIXEDdata is the entire 847,000,000 data point model used by every calculation.
+# This model takes about 35-40 minutes to build.
+global FIXEDdata = returndata()
+
+# run reports. Uncomment report for on screen reports. Uncomment ReporttoFile for
+# a dump of data to files.
+# report(FIXEDdata)
 ReporttoFile(FIXEDdata)
 
 # No code beyond this point

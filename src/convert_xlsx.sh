@@ -1,5 +1,11 @@
 #!/usr/bin/bash
-fulldatapath="/mnt/d/manra/Documents/Data Science/AchieveRenewable/data/"
+
+##
+## Converts WaterFurnace cloud data, delivered as XLSX files, into
+## Comma Separated Value (CSV) files. This BASH script can be run
+## on Linux systems, or WLS on windows. 
+##
+fulldatapath="/mnt/d/Libraries/Documents/GitHub/WaterFurnaceAnalytics/data/"
 for f in "$fulldatapath"*.xlsx;
 do  echo $f;
     bn=$(basename "$f" ".xlsx");
